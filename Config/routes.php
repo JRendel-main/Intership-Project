@@ -19,7 +19,7 @@
     $resources = array(
       'users','select',
       'assigns', 'names', 'suppliers', 'shipments', 'equips', 'trucks',
-      'cruds'
+      'cruds', 'beneficiaries', 'print'
     );
 
   Router::mapResources($resources, array('prefix' => 'api'));

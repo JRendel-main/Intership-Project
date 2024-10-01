@@ -12,12 +12,12 @@ app.config(function($routeProvider) {
 
     .when('/crud/edit/:id', {
       templateUrl: tmp + 'cruds__edit',
-      controller: 'CrudEditController',
+      controller: 'CrudsEditController',
     })
 
-    .when('/crud/view/:id/', {
+    .when('/crud/view/:id', {
       templateUrl: tmp + 'cruds__view',
-      controller: 'CrudViewController',
+      controller: 'CrudsViewController',
     })
   ;
 

@@ -1,22 +1,169 @@
-app.controller('CrudsController', function($scope, Crud) {
+function calculateAge(bday) {
+  let today = new Date();
+  let birthDate = new Date(bday);
 
-  $scope.load = function(options) {
-    options = typeof options !== 'undefined' ? options : {};
-
-    Crud.query(options, function(e) {
-      if (e.response.ok) {
-        $scope.cruds = e.response.data
-      }
-    });
+  let age = today.getFullYear() - birthDate.getFullYear();
+  let m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
   }
 
+  return age;
+}
 
+
+app.controller('CrudsController', function ($scope, Crud, Print) {
+  $scope.selectedTab = 'all'; // Default tab
+  $scope.filteredCruds = []; // Array for filtered data
+  $scope.allCruds = []; // Store all records for advanced search
+
+  $scope.selectedPrintType = 'all';
+
+  $scope.advancedSearch = {
+    name: '',
+    dateFrom: '',
+    dateTo: ''
+  };
+
+  // Initial load of data
+  $scope.load = function (options) {
+    options = options || {};
+    Crud.query(options, function (e) {
+      if (e.response.ok) {
+        $scope.cruds = e.response.data;
+        $scope.allCruds = angular.copy($scope.cruds); // Store for advanced search
+        $scope.filterCruds(); // Call filter function
+        $scope.paginator = e.response.paginator;
+        $scope.pages = paginator($scope.paginator, 5);
+      }
+    });
+  };
+
+  // Function to select a tab and filter data
+  $scope.selectTab = function (tab) {
+    $scope.selectedTab = tab;
+    $scope.filterCruds(); // Filter data based on selected tab
+  };
+
+  // Function to filter data based on selected tab
+  $scope.filterCruds = function () {
+    if ($scope.selectedTab === 'all') {
+      $scope.filteredCruds = $scope.cruds;
+    } else {
+      $scope.filteredCruds = $scope.cruds.filter(function (crud) {
+        return crud.status === $scope.selectedTab;
+      });
+    }
+  };
+
+  // Function for simple search
+  $scope.search = function (search) {
+    search = search || '';
+    if (search.length > 0) {
+      $scope.load({ search: search });
+    } else {
+      $scope.load();
+    }
+  };
+
+  // Function for advanced search
+  $scope.advancedSearchFunction = function () {
+    let filteredCruds = $scope.allCruds;
+
+    if ($scope.advancedSearch.name) {
+      filteredCruds = filteredCruds.filter(data =>
+        data.name.toLowerCase().includes($scope.advancedSearch.name.toLowerCase())
+      );
+    }
+
+    if ($scope.advancedSearch.dateFrom) {
+      filteredCruds = filteredCruds.filter(data =>
+        new Date(data.date_created) >= new Date($scope.advancedSearch.dateFrom)
+      );
+    }
+
+    if ($scope.advancedSearch.dateTo) {
+      filteredCruds = filteredCruds.filter(data =>
+        new Date(data.date_created) <= new Date($scope.advancedSearch.dateTo)
+      );
+    }
+
+    $scope.filteredCruds = filteredCruds; // Update displayed data
+  };
+
+  // Reset search filters
+  $scope.resetSearch = function () {
+    $scope.advancedSearch = {
+      name: '',
+      dateFrom: '',
+      dateTo: ''
+    };
+  };
+
+  $scope.openPrintModal = function () {
+    $('#printModal').modal('show');
+  };
+
+  $scope.print = function () {
+    let dataToPrint = $scope.filteredCruds;
+
+    // check if dataToPrint is empty
+    
+
+    Print.print(dataToPrint).then(response => {
+      let file = new Blob([response.data], { type: 'application/pdf' });
+      let fileURL = URL.createObjectURL(file);
+      window.open(fileURL);
+    }
+    ).catch(error => {
+      console.log(error);
+      $.gritter.add({
+        title: "Warning!",
+        text: "An error occurred while generating the report"
+      });
+    });
+  };
+
+
+  // Function to remove a record
+  $scope.remove = function (data) {
+    bootbox.confirm("Are you sure you want to delete this record " + data.name + "?", function (result) {
+      if (result) {
+        Crud.delete({ id: data.id }, function (e) {
+          if (e.response.ok) {
+            $.gritter.add({
+              title: "Successful!",
+              text: e.response.msg
+            });
+            $scope.load(); // Reload after deletion
+          } else {
+            $.gritter.add({
+              title: "Warning!",
+              text: e.response.msg
+            });
+          }
+        });
+      }
+    });
+  };
+
+  // Initial load
   $scope.load();
-
 });
 
-app.controller('CrudsAddController', function($scope, Crud) {
-  valid = $("#form").validationEngine('validate');
+app.controller('CrudsAddController', function($scope, Crud, Select) {
+  valid = $("#form").validationEngine('attach');
+
+  Select.get({ code: 'crud_status'}, function(e) {
+    $scope.status = e.data;
+    console.log($scope.status)
+  })
+
+  $scope.$watch('data.Crud.bday', function (newVal, oldVal) {
+    if(newVal) {
+      $scope.data.Crud.age = calculateAge(newVal)
+    }
+  })
 
   $scope.save = function() {
     if (valid) {
@@ -47,614 +194,207 @@ app.controller('CrudsAddController', function($scope, Crud) {
 
 });
 
-app.controller('UsersViewController', function($scope, $routeParams, DeleteSelected, User, Select, UserPermission) {
-
-  modalMaxHeight();
-
+app.controller('CrudsViewController', function ($scope, $routeParams, Crud, Beneficiary, Print) {
   $scope.id = $routeParams.id;
 
-  $scope.data = {};
-
-  $scope.data.PermissionSelection = [];
-
-  $scope.data.UserPermission = [];
-  
-  // load 
-
-  $scope.load = function() {
-
-    User.get({ id: $scope.id }, function(e) {
-
-      $scope.data = e.data;
-
-      $scope.permissions_temp = $scope.data.PermissionSelection;
-
-      $scope.compute();
-      
+  $scope.approve = function () {
+    // Update status to approved
+    Crud.update({ id: $scope.id }, { status: 'approved' }, function (e) {
+      if (e.response.ok) {
+        $.gritter.add({
+          title: "Successful!",
+          text: e.response.msg
+        });
+        $scope.load();
+      } else {
+        $.gritter.add({
+          title: "Warning!",
+          text: e.response.msg
+        });
+      }
     });
+  };
 
-  }
+  $scope.disapprove = function () {
+    // Update status to disapproved
+    Crud.update({ id: $scope.id }, { status: 'disapproved' }, function (e) {
+      if (e.response.ok) {
+        $.gritter.add({
+          title: "Successful!",
+          text: e.response.msg
+        });
+        $scope.load();
+      } else {
+        $.gritter.add({
+          title: "Warning!",
+          text: e.response.msg
+        });
+      }
+    });
+  };
+
+  $scope.countBeneficiaries = function () {
+    Beneficiary.query({ userId: $scope.id }, function (e) {
+      let beneficiaries = e.response.data;
+      $scope.beneficiaries = beneficiaries;
+      $scope.totalBeneficiaries = beneficiaries.length;
+    });
+  };
+
+  $scope.countBeneficiaries();
+
+  $scope.load = function () {
+    Crud.get({ id: $scope.id }, function (e) {
+      let data = e.response.data;
+
+      let age = new Date().getFullYear() - new Date(data.Crud.bday).getFullYear();
+      data.age = age;
+
+      $scope.data = data;
+    });
+  };
 
   $scope.load();
-  
-  $scope.compute = function(){
 
-    amount = 0;
-
-    if($scope.data.UserPermission.length > 0){
-
-      $.each($scope.data.UserPermission,function(key,val){
-
-        if(val.visible != 0){
-
-          amount += parseFloat(val['amount']);
-
-        }
-
-      });
-
-    }
-
-    $scope.data.User.total = amount;
-
-  }
-
-  $scope.removeselected = function() {
-    
-    $('.deletePermission').attr('disabled',true);
-
-    permissiondelete = [];
-
-    for (i in $scope.data.UserPermission) {
-
-      if ($scope.data.UserPermission[i].selected) {
-
-        permissiondelete.push({
-
-          user_id:       $scope.id,
-
-          permission_id: $scope.data.UserPermission[i].id
-
-        });
-
-      }
-
-    }
-
-   if (permissiondelete.length <= 0) {
-
-      $.gritter.add({
-
-        title: 'Warning!',
-
-        text: 'Please select permission to delete.',
-
-      });
-
-      $('.deletePermission').attr('disabled',false);
-
-    } else {
-
-      bootbox.confirm('Are you sure you want to delete your selected permission ?', function(c) {
-
-        if (c) {
-
-          DeleteSelected.save({ permissiondelete : permissiondelete }, function(e) {
-
-            $('.deletePermission').attr('disabled',false);
-
-            if (e.ok) {
-
-              $.gritter.add({
-
-                title: 'Successful!',
-
-                text: e.msg
-
-              });
-
-              $scope.load();
-
-            } else {
-
-              $.gritter.add({
-
-                title: 'Warning!',
-
-                text: e.msg
-
-              });
-
-            }
-
+  $scope.remove = function (data) {
+    bootbox.confirm("Are you sure you want to delete this record " + data.name + "?", function (result) {
+      Crud.remove({ id: data.id }, function (e) {
+        if (e.response.ok) {
+          $.gritter.add({
+            title: "Successful!",
+            text: e.response.msg
           });
-
+          window.location = "#/crud";
         } else {
-
-          $('.deletePermission').attr('disabled',false);
-
+          $.gritter.add({
+            title: "Warning!",
+            text: e.response.msg
+          });
         }
-
       });
-
-    }
-
-  }
-  
-  // remove 
-
-  $scope.remove = function(data) {
-
-    bootbox.confirm('Are you sure you want to remove '+ data.name +' ?', function(c) {
-
-      if (c) {
-
-        User.remove({ id: data.id }, function(e) {
-
-          if (e.ok) {
-
-            $.gritter.add({
-
-              title: 'Successful!',
-
-              text:  e.msg,
-
-            });
-
-            window.location = "#/users";
-
-          }
-
-        });
-
-      }
-
     });
-
-  } 
-
-  // add permission
-
-  $scope.addPermission = function() {
-
-    $('.savePermission').attr('disabled',false);
-
-    $('#add-permission-modal').modal('show');
-
-  }
-
-  $scope.selectall = function() {
-
-    if ($scope.selectAll) {
-
-      bool = true;
-
-    } else {
-
-      bool = false;
-
-    }
-
-    for (i in $scope.data.PermissionSelection) {
-
-      $scope.data.PermissionSelection[i].selected = bool;
-
-    }
-
-  }
-  
-  $scope.selectalldelete = function() {
-
-    if ($scope.selectAlldelete) {
-
-      bool = true;
-
-    } else {
-
-      bool = false;
-
-    }
-
-    for (i in $scope.data.UserPermission) {
-
-      $scope.data.UserPermission[i].selected = bool;
-
-    }
-
-  }
-    
-  $scope.savePermission = function() {
-
-    $('.savePermission').attr('disabled',true);
-
-    permissions = [];
-
-    for (i in $scope.data.PermissionSelection) {
-
-      if ($scope.data.PermissionSelection[i].selected) {
-
-        permissions.push({
-
-          user_id:       $scope.id,
-
-          permission_id: $scope.data.PermissionSelection[i].id
-
-        });
-
-      }
-
-    }
-
-    if (permissions.length <= 0) {
-
-      $.gritter.add({
-
-        title: 'Warning!',
-
-        text: 'Please select permission to save.',
-
-      });
-
-      $('.savePermission').attr('disabled',false);
-
-    } else {
-
-      $('.savePermission').attr('disabled',true);
-
-      UserPermission.save({ UserPermission: permissions }, function(e) {
-
-        $('.savePermission').attr('disabled',true);
-
-        if (e.ok) {
-
-          $.gritter.add({
-
-            title: 'Successful!',
-
-            text: e.msg
-
-          });
-
-          $scope.load();
-
-          $('#add-permission-modal').modal('hide');
-
-        } else {
-
-          $.gritter.add({
-
-            title: 'Warning!',
-
-            text: e.msg
-
-          });
-
-        }
-
-      });
-
-    }
-
-  }
-
-  // remove user
-
-  $scope.removePermission = function (permission) {
-
-    bootbox.confirm('Are you sure you want to delete "' + permission.module + '-' + permission.action + '"?', function(c) {
-
-      if (c) {
-
-        UserPermission.remove({ id:permission.id }, function(e){
-
-          if(e.ok){
-
-            $.gritter.add({ title: 'Successful!', text: e.msg });
-
-            $scope.load();
-
-          }
-
-        }); 
-
-      }
-
-    }); 
-
   };
-  
-  $scope.filterPermission = function (search) {
 
-    temp = [];
+  // Function to print user and beneficiary data
+  $scope.print = function () {
+    let userData = {
+      Crud: $scope.data.Crud,
+      beneficiaries: $scope.beneficiaries
+    };
 
-    if (search.module) {
-
-      angular.forEach($scope.permissions_temp, function(value, key) {
-
-        if (value.module == search.module) {
-
-          temp.push(value);
-
-        }
-
+    Print.print(userData).then(response => {
+      let file = new Blob([response.data], { type: 'application/pdf' });
+      let fileURL = URL.createObjectURL(file);
+      window.open(fileURL); // Display the PDF in a new tab
+    }).catch(error => {
+      console.log(error);
+      $.gritter.add({
+        title: "Warning!",
+        text: "An error occurred while generating the report"
       });
-
-    }else if (search.action) {
-
-      angular.forEach($scope.permissions_temp, function(value, key) {
-
-        if (value.action == search.action) {
-
-          temp.push(value);
-
-        }
-
-      });
-
-    } 
-
-    $scope.data.PermissionSelection = temp;
-
-  }
-
+    });
+  };
 });
 
-app.controller('UsersEditController', function($scope, $routeParams, User, Select) {
-  
-  $scope.data = {};
-  
-  $scope.bool = [{ id: true, value: 'Yes' }, { id: false, value: 'No' }];
 
-  $('.datepicker').datepicker({
-
-    format:    'mm/dd/yyyy',
-
-    autoclose: true,
-
-    todayHighlight: true,
-
-  });
-
-  // get session
-
-  Select.get({code: 'session'}, function(e){
-
-    $scope.roleId = e.data.roleId;
-
-  });
-
-  // get roles
-
-  Select.get({code: 'roles'}, function(e){
-
-    $scope.roles = e.data;
-
-  });
-
-  // get branches
-
-  Select.get({code: 'branch'}, function(e){
-
-    $scope.branches = e.data;
-
-  });
-  
-  // get permissions
-
-  Select.get({code: 'permissions'}, function(e){
-
-    $scope.permissions = e.data;
-
-  });
-
+app.controller('CrudsEditController', function($scope, $routeParams, Crud, Select, Beneficiary) {
   $scope.id = $routeParams.id;
 
-  $("#form").validationEngine('attach');
-  
-  // load 
+  $scope.loadBeneficiaries = function() {
+    Beneficiary.query({ userId: $scope.id }, function(e) {
+      $scope.beneficiaries = e.response.data;
+    })
+  }
+
+  $scope.loadBeneficiaries();
+
+  $scope.addBeneficiary = function() {
+    $scope.beneficiary = {};
+    $('#add-beneficiary-modal').modal('show');
+
+    $scope.beneficiary.userId = $scope.data.Crud.id;
+
+    // calculate age
+    $scope.$watch('beneficiary.bday', function (newVal, oldVal) {
+      if (newVal) {
+        $scope.beneficiary.age = calculateAge(newVal)
+      }
+    })
+  }
+
+  $scope.saveBeneficiary = function() {
+    Beneficiary.save($scope.beneficiary, function(e) {
+      if (e.response.ok) {
+        $.gritter.add({
+          title: "Successful!",
+          text: e.response.msg
+        })
+
+        $scope.loadBeneficiaries();
+      } else {
+        $.gritter.add({
+          title: "Warning!",
+          text: e.response.msg
+        })
+      }
+    })
+    $('#add-beneficiary-modal').modal('hide');
+  }
+
+  $scope.removeBeneficiary = function(data) {
+    bootbox.confirm("Are you sure you want to delete this record " + data.name + "?", function(result) {
+      Beneficiary.delete({ id: data.id }, function(e) {
+        if (e.response.ok) {
+          $.gritter.add({
+            title: "Successful!",
+            text: e.response.msg
+          })
+
+          $scope.loadBeneficiaries();
+        } else {
+          $.gritter.add({
+            title: "Warning!",
+            text: e.response.msg
+          })
+        }
+      })
+    });
+  }
+
+  $scope.$watch('data.Crud.bday', function (newVal, oldVal) {
+    if (newVal) {
+      $scope.data.Crud.age = calculateAge(newVal)
+    }
+  })
+
+  Select.get({ code: 'crud_status' }, function (e) {
+    $scope.status = e.data;
+    console.log($scope.status)
+  })
 
   $scope.load = function() {
-
-    User.get({ id: $scope.id }, function(e) {
-
-      $scope.data = e.data;
-
-      $scope.data.User.password = '';
-
-      $scope.confirmPassword = '';
-
-      $scope.putIndex();
-
-    });
-
+    Crud.get({ id: $scope.id }, function(e) {
+      $scope.data = e.response.data;
+    })
   }
 
+  $scope.save = function() {
+    Crud.update({ id: $scope.id }, $scope.data, function(e) {
+      if (e.response.ok) {
+        $.gritter.add({
+          title: "Successful!",
+          text: e.response.msg
+        })
+        $scope.load();
+      } else {
+        $.gritter.add({
+          title: "Warning!",
+          text: e.response.msg
+        })
+      }
+    })
+  }
   $scope.load();
 
-  $scope.compute = function(){
-
-    amount = 0;
-
-    if($scope.data.UserPermission.length > 0){
-
-      $.each($scope.data.UserPermission,function(key,val){
-
-        if(val.visible != 0){
-
-          amount += parseFloat(val['amount']);
-
-        }
-
-      });
-
-    }
-
-    $scope.data.User.total = amount;
-
-  }
-
-  $scope.getPermission = function(id){
-
-    if($scope.permissions.length > 0){
-
-      $.each($scope.permissions,function(key,val){
-
-        if(id == val.id){
-
-          $scope.adata.permission = val.value;
-          
-        }
-
-      });
-
-    }
   
-  }
-
-  $scope.putIndex = function(){
-
-    if($scope.data.UserPermission.length > 0){
-
-      index = 0;
-
-      $.each($scope.data.UserPermission,function(key,val){
-
-        if(val.visible != 0){
-
-          index += 1;
-
-          $scope.data.UserPermission[key].index = index;
-          
-        }
-
-      });
-
-    }
-
-  }
-
-  $scope.addPermission = function() {
-
-    $('#add_permission').validationEngine('attach');
-
-    $scope.adata = {};
-
-    $('#add-permission-modal').modal('show');  
-
-  }
-
-  $scope.savePermission = function(data){
-
-    valid = $('#add_permission').validationEngine('validate');
-
-    if(valid){
-
-      data.amount = number_format(data.amount, 2, '.', ''); 
-
-      $scope.data.UserPermission.push(data);
-
-      $scope.compute();
-
-      $scope.putIndex();
-
-      $('#add-permission-modal').modal('hide');  
-
-    }
-    
-  }
-
-  $scope.editPermission = function(index,data) {
-
-    $('#edit_permission').validationEngine('attach');
-
-    data.index = index;
-
-    $scope.adata = data;
-
-    $('#edit-permission-modal').modal('show');  
-
-  }
-
-  $scope.updatePermission = function(data,index) {
-
-    valid = $('#edit_permission').validationEngine('validate');
-
-    if(valid){
-
-      data.amount = number_format(data.amount, 2, '.', ''); 
-
-      $scope.data.UserPermission[data.index] = data;
-
-      $scope.compute();
-
-      $scope.putIndex();
-
-      $('#edit-permission-modal').modal('hide');  
-
-    }
-
-  }
-
-  $scope.removePermission = function(index){
-
-    $scope.data.UserPermission[index].visible = 0;
-
-    $scope.compute();
-
-    $scope.putIndex();
-
-  }
-
-  $scope.update = function() {
-
-    valid = $("#form").validationEngine('validate');
-
-    if (valid) {
-
-      if ($scope.data.User.password != $scope.confirmPassword) {
-
-        $.gritter.add({
-
-          title: 'Warning!',
-
-          text: 'Password does not match'
-
-        });
-
-      } else {
-
-        User.update({id:$scope.id}, $scope.data, function(e) {
-
-          if (e.ok) {
-
-            $.gritter.add({
-
-              title: 'Successful!',
-
-              text:  e.msg,
-
-            });
-
-            window.location = '#/users';
-
-          } else {
-
-            $.gritter.add({
-
-              title: 'Warning!',
-
-              text:  e.msg,
-
-            });
-
-          }
-
-        });
-
-      }  
-
-    }
-    
-  }
-
-}); 
+});

@@ -9,7 +9,9 @@ class SelectController extends AppController {
 
     'Role',
 
-    'Permission'
+    'Permission',
+
+    'crudStatus'
 
   );
 	
@@ -69,7 +71,7 @@ class SelectController extends AppController {
 
       }
       
-    }else if($code == 'permissions'){
+    } else if($code == 'permissions'){
 
       $conditions = array();
 
@@ -103,7 +105,16 @@ class SelectController extends AppController {
 
       } 
 
-    }else {
+    } else if ($code == 'crud_status') {
+      $tmp = $this->crudStatus->find('all');
+
+      foreach ($tmp as $k => $data) {
+        $datas[] = array(
+          'id' => $data['crudStatus']['id'],
+          'value' => properCase($data['crudStatus']['name'])
+        );
+      }
+    } else {
 
       $datas = array();
 
